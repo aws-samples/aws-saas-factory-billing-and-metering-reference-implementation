@@ -1,0 +1,466 @@
+#  Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+#
+#  Permission is hereby granted, free of charge, to any person obtaining a copy of this
+#  software and associated documentation files (the "Software"), to deal in the Software
+#  without restriction, including without limitation the rights to use, copy, modify,
+#  merge, publish, distribute, sublicense, and/or sell copies of the Software, and to
+#  permit persons to whom the Software is furnished to do so.
+#
+#  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED,
+#  INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+#  PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+#  HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+#  OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+#  SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Reference implementation for a billing and metering service
+
+Globals:
+  Function:
+    Runtime: java11
+    MemorySize: 1024
+
+Parameters:
+  TenantConfigurationIndexName:
+    Type: String
+    Default: sub-type-data-type-index
+
+  BillingEventBridgeName:
+    Type: String
+    Default: BillingEventBridge
+
+Resources:
+
+  # EventBridge resources
+  BillingEventBridge:
+    Type: AWS::Events::EventBus
+    Properties:
+      Name: !Ref BillingEventBridgeName
+  #####
+
+  # Tenant onboarding resources
+  OnboardTenantEventRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Description: A filter for onboarding tenant events
+      EventBusName: !Ref BillingEventBridge
+      EventPattern:
+        detail-type:
+          - "ONBOARD"
+      State: ENABLED
+      Targets:
+        - Arn: !GetAtt OnboardNewTenantFunction.Arn
+          Id: OnboardNewTenantFunction
+
+  OnboardNewTenantFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: .
+      Environment:
+        Variables:
+          DYNAMODB_TABLE_NAME: !Ref BillingAndMeteringTable
+          DYNAMODB_CONFIG_INDEX_NAME: !Ref TenantConfigurationIndexName
+      Handler: com.amazonaws.partners.saasfactory.metering.onboarding.OnboardNewTenant::handleRequest
+      Role: !GetAtt OnboardNewTenantFunctionRole.Arn
+      Timeout: 30
+
+  OnboardNewTenantFunctionPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: 'lambda:InvokeFunction'
+      FunctionName: !GetAtt OnboardNewTenantFunction.Arn
+      Principal: 'events.amazonaws.com'
+      SourceArn: !GetAtt OnboardTenantEventRule.Arn      
+
+  OnboardNewTenantFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Policies:
+        - PolicyName: OnboardNewTenantFunction-Policy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action: 
+                  - 'dynamodb:UpdateItem'
+                  - 'dynamodb:PutItem'
+                Resource: !GetAtt BillingAndMeteringTable.Arn
+              - Effect: Allow
+                Action:
+                  - logs:PutLogEvents
+                Resource: 
+                  - !Sub arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:*:log-stream:*              
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:DescribeLogStreams
+                  - logs:CreateLogGroup
+                Resource:
+                  - !Sub arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:*                                                       
+  #####
+
+  # Process billing event resources
+  BillingEventRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Description: A filter for billing events on the billing event bridge
+      EventBusName: !Ref BillingEventBridge
+      EventPattern:
+        detail-type:
+          - "BILLING"
+      State: ENABLED
+      Targets:
+        - Arn: !GetAtt ProcessBillingEventFunction.Arn
+          Id: ProcessBillingEventFunction
+
+  ProcessBillingEventFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: .
+      Environment:
+        Variables:
+          DYNAMODB_TABLE_NAME: !Ref BillingAndMeteringTable
+          DYNAMODB_CONFIG_INDEX_NAME: !Ref TenantConfigurationIndexName
+      Handler: com.amazonaws.partners.saasfactory.metering.billing.ProcessBillingEvent::handleRequest
+      Role: !GetAtt ProcessBillingEventFunctionRole.Arn
+      Timeout: 30
+
+  ProcessBillingEventFunctionEventsPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: 'lambda:InvokeFunction'
+      FunctionName: !GetAtt ProcessBillingEventFunction.Arn
+      Principal: 'events.amazonaws.com'
+      SourceArn: !GetAtt BillingEventRule.Arn
+
+  ProcessBillingEventFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Policies:
+        - PolicyName: ProcessBillingEventFunction-Policy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'dynamodb:GetItem'
+                  - 'dynamodb:PutItem'
+                Resource: !GetAtt BillingAndMeteringTable.Arn
+              - Effect: Allow
+                Action:
+                  - 'logs:PutLogEvents'
+                Resource: 
+                  - !Sub arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:*:log-stream:*              
+              - Effect: Allow
+                Action:
+                  - 'logs:CreateLogStream'
+                  - 'logs:DescribeLogStreams'
+                  - 'logs:CreateLogGroup'
+                Resource:
+                  - !Sub arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:*                                 
+  #####
+
+  # Aggregation resources
+  BillingEventAggregationFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: .
+      Environment:
+        Variables:
+          DYNAMODB_TABLE_NAME: !Ref BillingAndMeteringTable
+          DYNAMODB_CONFIG_INDEX_NAME: !Ref TenantConfigurationIndexName
+      Handler: com.amazonaws.partners.saasfactory.metering.aggregation.BillingEventAggregation::handleRequest
+      Role: !GetAtt BillingEventAggregationFunctionRole.Arn
+      Timeout: 900
+
+  BillingEventAggregationFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Policies:
+        - PolicyName: BillingEventAggregation-Policy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'dynamodb:Query'
+                Resource:
+                  - !GetAtt BillingAndMeteringTable.Arn
+                  - !Join
+                    - ''
+                    - - !GetAtt BillingAndMeteringTable.Arn
+                      - '/index/'
+                      - !Ref TenantConfigurationIndexName
+              - Effect: Allow
+                Action:
+                  - 'dynamodb:ConditionCheckItem'
+                  - 'dynamodb:PutItem'
+                  - 'dynamodb:UpdateItem'
+                  - 'dynamodb:DeleteItem'
+                  - 'dynamodb:GetItem'
+                Resource:
+                  - !GetAtt BillingAndMeteringTable.Arn
+                Condition:
+                  ForAnyValue:StringEquals:
+                    dynamodb:EnclosingOperation:
+                      - TransactWriteItems
+                      - TransactGetItems
+              - Effect: Allow
+                Action:
+                  - 'dynamodb:PutItem'
+                Resource:
+                  - !GetAtt BillingAndMeteringTable.Arn
+              - Effect: Allow
+                Action:
+                  - logs:PutLogEvents
+                Resource: 
+                  - !Sub arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:*:log-stream:*              
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:DescribeLogStreams
+                  - logs:CreateLogGroup 
+                Resource:
+                  - !Sub arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:*                      
+  #####
+
+  # Publish billing data to Stripe resources
+  PublishToStripeEventRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Description: A scheduled task to publish billing data to Stripe
+      # Run this on the top of the hour
+      ScheduleExpression: "cron(* * * * ? *)"
+      State: ENABLED
+      Targets:
+        - Arn: !Ref PublishToStripeStepFunction
+          Id: PublishToStripeStepFunction
+          RoleArn: !GetAtt PublishToStripeEventRuleRole.Arn
+
+  PublishToStripeEventRuleRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - events.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Policies:
+        - PolicyName: InvokeStepFunction
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action: 'states:StartExecution'
+                Resource: !Ref PublishToStripeStepFunction
+
+  PublishToStripeLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      RetentionInDays: 7
+
+  PublishToStripeStepFunction:
+    Type: AWS::StepFunctions::StateMachine
+    Properties:
+      DefinitionString:
+        !Sub
+          - |-
+            {
+              "StartAt": "AggregateEntries",
+              "States" : {
+                "AggregateEntries": {
+                  "Type": "Task",
+                  "Resource": "${BillingAggregationArn}",
+                  "Next": "PutEvents"
+                },
+                "PutEvents" : {
+                  "Type": "Task",
+                  "Resource": "${StripeAggregationArn}",
+                  "End": true
+                }
+              }
+            }
+          - BillingAggregationArn: !GetAtt [BillingEventAggregationFunction, Arn]
+            StripeAggregationArn: !GetAtt [StripeBillingPublishFunction, Arn]
+      RoleArn: !GetAtt PublishToStripeStateMachineRole.Arn
+      StateMachineType: EXPRESS
+      LoggingConfiguration:
+        Destinations:
+          - CloudWatchLogsLogGroup:
+              LogGroupArn: !GetAtt PublishToStripeLogGroup.Arn
+        Level: ALL
+
+  PublishToStripeStateMachineRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - states.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Policies:
+        - PolicyName: StepFunctionPermissions
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action: 'lambda:InvokeFunction'
+                Resource:
+                  - !GetAtt BillingEventAggregationFunction.Arn
+                  - !GetAtt StripeBillingPublishFunction.Arn
+              - Effect: Allow
+                Action:
+                  - 'logs:CreateLogDelivery'
+                  - 'logs:GetLogDelivery'
+                  - 'logs:UpdateLogDelivery'
+                  - 'logs:DeleteLogDelivery'
+                  - 'logs:ListLogDeliveries'
+                  - 'logs:PutResourcePolicy'
+                  - 'logs:DescribeResourcePolicies'
+                  - 'logs:DescribeLogGroups'
+                Resource: '*'
+
+  StripeBillingPublishFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: .
+      Environment:
+        Variables:
+          DYNAMODB_TABLE_NAME: !Ref BillingAndMeteringTable
+          DYNAMODB_CONFIG_INDEX_NAME: !Ref TenantConfigurationIndexName
+          STRIPE_SECRET_ARN: !Ref StripeApiKeySecret
+      Handler: com.amazonaws.partners.saasfactory.metering.aggregation.StripeBillingPublish::handleRequest
+      Role: !GetAtt StripeBillingPublishFunctionRole.Arn
+      Timeout: 300
+
+  StripeBillingPublishFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Policies:
+        - PolicyName: DDBPermissions
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'dynamodb:Query'
+                Resource:
+                  - !GetAtt BillingAndMeteringTable.Arn
+                  - !Join
+                    - ''
+                    - - !GetAtt BillingAndMeteringTable.Arn
+                      - '/index/'
+                      - !Ref TenantConfigurationIndexName
+              - Effect: Allow
+                Action:
+                  - 'dynamodb:BatchWriteItem'
+                  - 'dynamodb:UpdateItem'
+                Resource:
+                  - !GetAtt BillingAndMeteringTable.Arn
+              - Effect: Allow
+                Action:
+                  - 'secretsmanager:GetSecretValue'
+                Resource:
+                  - !Ref StripeApiKeySecret
+              - Effect: Allow
+                Action:
+                  - logs:PutLogEvents
+                Resource: 
+                  - !Sub arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:*:log-stream:*              
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:DescribeLogStreams
+                  - logs:CreateLogGroup 
+                Resource:
+                  - !Sub arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:*                    
+  #####
+
+  # Data persistence resources
+  BillingAndMeteringTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      AttributeDefinitions:
+        - AttributeName: data_type
+          AttributeType: S
+        - AttributeName: sub_type
+          AttributeType: S
+      BillingMode: PAY_PER_REQUEST
+      GlobalSecondaryIndexes:
+        - IndexName: !Ref TenantConfigurationIndexName
+          KeySchema:
+            - AttributeName: sub_type
+              KeyType: HASH
+            - AttributeName: data_type
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+          ProvisionedThroughput:
+            ReadCapacityUnits: 0
+            WriteCapacityUnits: 0
+      KeySchema:
+        - AttributeName: data_type
+          KeyType: HASH
+        - AttributeName: sub_type
+          KeyType: RANGE
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      SSESpecification:
+        SSEEnabled: true
+
+  StripeApiKeySecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Description: The API key used to access Stripe
+  #####
+
+Outputs:
+  StripeSecretKeyArn:
+    Description: The secret key ARN created for Stripe's API key
+    Value: !Ref StripeApiKeySecret
+

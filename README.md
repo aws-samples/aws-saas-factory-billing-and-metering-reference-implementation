@@ -8,6 +8,14 @@ This project contains a reference implementation for a serverless billing/meteri
 * Maven
 * AWS SAM (https://aws.amazon.com/serverless/sam/)
 
+## Security
+
+See [CONTRIBUTING](CONTRIBUTING.md#security-issue-notifications) for more information.
+
+## License
+
+This library is licensed under the MIT-0 License. See the LICENSE file.
+
 ## Building
 
 Build the SAM application by running the following command:
@@ -17,22 +25,22 @@ $ sam build
 ```
 
 You can ignore the warnings about the JVM using a major version higher than 11 if you are
-using a JVM version higher than 11. The pom files tell the compiler to build for a version
+using a Java compiler version higher than 11. The pom file tells the compiler to build for a version
 of Java that is compatible with Lambda.
 
 ## Testing
 
-There is Maven lifecycle that defines tests major functionality locally in this stack. In order to
+There is Maven lifecycle that defines tests of major functionality locally. In order to
 test the OnboardNewTenant, ProcessBillingEvent, BillingEventAggregation and StripeBillingPublish, the
-DynamoDB Local (https://hub.docker.com/r/amazon/dynamodb-local/) container needs to be running in Docker
+[DynamoDB Local](https://hub.docker.com/r/amazon/dynamodb-local/) container needs to be running in Docker
 and listening on port 8000:
 
 ```shell script
 $ docker run -p 8000:8000 amazon/dynamodb-local:latest
 ```
 
-For the StripeBillingPublish test, the stripe-mock container (https://hub.docker.com/r/stripemock/stripe-mock) needs
-to be run according to the Docker usage instructions here: https://github.com/stripe/stripe-mock
+For the StripeBillingPublish test, the [stripe-mock container](https://hub.docker.com/r/stripemock/stripe-mock) needs
+to be run according to the Docker usage instructions [here](https://github.com/stripe/stripe-mock)
 
 The tests for TenantConfiguration and Constants do not require any external dependencies.
 
@@ -57,7 +65,7 @@ Stripe:
 * Stripe Subscription (https://stripe.com/docs/api/subscriptions)
 
 The connection between the String Customer and Stripe Subscription creates the subscription item ID, an identifier
-prefixed with "si_". Please refer to the Stripe documentation for more information about how to create
+prefixed with "si\_". Please refer to the Stripe documentation for more information about how to create
 these resources.
 
 Once the subscription item ID exists in Stripe, the tenant can be onboarded into this application. This is done
@@ -67,7 +75,7 @@ through an event on the associated EventBridge. See the "Usage and Function" sec
 
 The Stripe API key is stored within Secrets Manager. The Cloudformation stack creates an empty secret.
 Access the secret through the Secrets Manager console and paste in a **test Stripe API key** only. Do not
-paste it in JSON; the application expects to find a single string with the API key. **Do not use a production
+paste it in JSON format; the application expects to find a single string with the API key. **Do not use a production
 API key.**
 
 ## Usage and Function
@@ -82,9 +90,9 @@ event is in the following format:
 }
 ```
 
-Where "TenantID" is some way to identify a tenant, and where "ExternalSubscriptionIdentifier" is the identified 
+Where "TenantID" is some way to identify a tenant, and where "ExternalSubscriptionIdentifier" is the identifier 
 associated with the subscription in the billing provider. In the case of Stripe Billing, this identifier will be 
-the subscription ID, prefixed with "si_".
+the subscription ID, prefixed with "si\_".
 
 This can be placed onto the EventBridge with the AWS CLI or with one of the AWS SDKs. Here is an example using the
 AWS CLI:
@@ -108,8 +116,7 @@ The contents of exampleOnboardingEvent.json should be similar to the following:
 Where the value of the EventBusName key is the name of the EventBridge associated with the SAM application. This is
 BillingEventBridge by default.
 
-Once a tenant is onboarded, place billing events onto the EventBridge created by the CloudFormation stack. The event 
-is in the following format:
+Once a tenant is onboarded, place billing events onto the same EventBridge. The event is in the following format:
 
 ```json
 { 
@@ -118,7 +125,7 @@ is in the following format:
 }
 ```
 
-A description of each field:
+The billing event is in the following format:
 * TenantID: the ID of the tenant that owns the billing event
 * Quantity: the number of billing events that occurred
 

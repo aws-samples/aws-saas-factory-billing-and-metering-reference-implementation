@@ -98,15 +98,15 @@ Resources:
               - Effect: Allow
                 Action:
                   - logs:PutLogEvents
-                Resource: 
-                  - !Sub arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:*:log-stream:*              
+                Resource:
+                  - !Sub arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:*:log-stream:*
               - Effect: Allow
                 Action:
                   - logs:CreateLogStream
                   - logs:DescribeLogStreams
                   - logs:CreateLogGroup
                 Resource:
-                  - !Sub arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:*                                                       
+                  - !Sub arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:*
   #####
 
   # Process billing event resources
@@ -168,15 +168,15 @@ Resources:
               - Effect: Allow
                 Action:
                   - 'logs:PutLogEvents'
-                Resource: 
-                  - !Sub arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:*:log-stream:*              
+                Resource:
+                  - !Sub arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:*:log-stream:*
               - Effect: Allow
                 Action:
                   - 'logs:CreateLogStream'
                   - 'logs:DescribeLogStreams'
                   - 'logs:CreateLogGroup'
                 Resource:
-                  - !Sub arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:*                                 
+                  - !Sub arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:*
   #####
 
   # Aggregation resources
@@ -241,15 +241,15 @@ Resources:
               - Effect: Allow
                 Action:
                   - logs:PutLogEvents
-                Resource: 
-                  - !Sub arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:*:log-stream:*              
+                Resource:
+                  - !Sub arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:*:log-stream:*
               - Effect: Allow
                 Action:
                   - logs:CreateLogStream
                   - logs:DescribeLogStreams
-                  - logs:CreateLogGroup 
+                  - logs:CreateLogGroup
                 Resource:
-                  - !Sub arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:*                      
+                  - !Sub arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:*
   #####
 
   # Publish billing data to Stripe resources
@@ -353,8 +353,12 @@ Resources:
                   - 'logs:ListLogDeliveries'
                   - 'logs:PutResourcePolicy'
                   - 'logs:DescribeResourcePolicies'
-                  - 'logs:DescribeLogGroups'
                 Resource: '*'
+              - Effect: Allow
+                Action:
+                  - 'logs:DescribeLogGroups'
+                Resource:
+                  - !Sub arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:*
 
   StripeBillingPublishFunction:
     Type: AWS::Serverless::Function
@@ -410,15 +414,15 @@ Resources:
               - Effect: Allow
                 Action:
                   - logs:PutLogEvents
-                Resource: 
-                  - !Sub arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:*:log-stream:*              
+                Resource:
+                  - !Sub arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:*:log-stream:*
               - Effect: Allow
                 Action:
                   - logs:CreateLogStream
                   - logs:DescribeLogStreams
-                  - logs:CreateLogGroup 
+                  - logs:CreateLogGroup
                 Resource:
-                  - !Sub arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:*                    
+                  - !Sub arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:*
   #####
 
   # Data persistence resources

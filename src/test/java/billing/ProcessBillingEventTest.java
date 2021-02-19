@@ -55,6 +55,8 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
 import java.util.HashMap;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -134,6 +136,9 @@ class ProcessBillingEventTest {
         item.put("external_subscription_identifier", AttributeValue.builder()
                 .s(external_subscription_identifier)
                 .build());
+        item.put("closing_invoice_time", AttributeValue.builder()
+                .s(ZonedDateTime.now(ZoneId.of("Etc/UTC")).toString())
+                .build());
         PutItemRequest tenantRequest = PutItemRequest.builder()
                 .tableName(tableName)
                 .item(item)
@@ -199,7 +204,7 @@ class ProcessBillingEventTest {
         } while (!response.lastEvaluatedKey().isEmpty());
 
         // There should only be one result here.
-        assertEquals(response.items().size(), 1);
+        assertEquals(1, response.items().size());
         assertEquals(response.items().get(0).get("data_type").s(), tenantID);
 
         String expectedEventEntry = String.format("%s%s%s%s%s",

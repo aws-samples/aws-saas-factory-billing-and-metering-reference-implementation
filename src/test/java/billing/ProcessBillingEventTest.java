@@ -55,8 +55,7 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
-import java.time.ZoneId;
-import java.time.ZonedDateTime;
+import java.time.Instant;
 import java.util.HashMap;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -137,7 +136,7 @@ class ProcessBillingEventTest {
                 .s(external_subscription_identifier)
                 .build());
         item.put("closing_invoice_time", AttributeValue.builder()
-                .s(ZonedDateTime.now(ZoneId.of("Etc/UTC")).toString())
+                .s(Instant.now().toString())
                 .build());
         PutItemRequest tenantRequest = PutItemRequest.builder()
                 .tableName(tableName)

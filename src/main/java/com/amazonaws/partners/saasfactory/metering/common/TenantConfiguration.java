@@ -35,7 +35,7 @@ import static com.amazonaws.partners.saasfactory.metering.common.Constants.PRIMA
 import static com.amazonaws.partners.saasfactory.metering.common.Constants.SORT_KEY_NAME;
 import static com.amazonaws.partners.saasfactory.metering.common.Constants.formatTenantEntry;
 
-import java.time.ZonedDateTime;
+import java.time.Instant;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -46,7 +46,7 @@ public class TenantConfiguration {
 
     private final String tenantID;
     private final String externalSubscriptionIdentifier;
-    private final ZonedDateTime invoiceClosingTime;
+    private final Instant invoiceClosingTime;
 
     private TenantConfiguration(String tenantID,
                                 String externalSubscriptionIdentifier,
@@ -56,7 +56,7 @@ public class TenantConfiguration {
        if (invoiceClosingTime == null) {
            this.invoiceClosingTime = null;
        } else {
-           this.invoiceClosingTime = ZonedDateTime.parse(invoiceClosingTime);
+           this.invoiceClosingTime = Instant.parse(invoiceClosingTime);
        }
     }
 
@@ -70,12 +70,17 @@ public class TenantConfiguration {
 
     public String getExternalSubscriptionIdentifier() { return externalSubscriptionIdentifier; }
 
-    public ZonedDateTime getInvoiceClosingTime() { return this.invoiceClosingTime; }
+    public Instant getInvoiceClosingTime() { return this.invoiceClosingTime; }
 
     public boolean isEmpty() {
         return this.tenantID.isEmpty() &&
                this.externalSubscriptionIdentifier.isEmpty() &&
                this.invoiceClosingTime == null;
+    }
+
+    public boolean isInvoiceClosed() {
+        // Is the invoice time older than the current time?
+        return this.invoiceClosingTime.compareTo(Instant.now()) < 0;
     }
 
     public static List<TenantConfiguration> getTenantConfigurations(TableConfiguration tableConfig, DynamoDbClient ddb, Logger logger) {

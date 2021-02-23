@@ -38,6 +38,10 @@ import com.amazonaws.partners.saasfactory.metering.common.TenantConfiguration;
 import static com.amazonaws.partners.saasfactory.metering.common.Constants.AGGREGATION_ENTRY_PREFIX;
 import static com.amazonaws.partners.saasfactory.metering.common.Constants.AGGREGATION_EXPRESSION_VALUE;
 import static com.amazonaws.partners.saasfactory.metering.common.Constants.ATTRIBUTE_DELIMITER;
+import static com.amazonaws.partners.saasfactory.metering.common.Constants.CLOSING_INVOICE_TIME_ATTRIBUTE_NAME;
+import static com.amazonaws.partners.saasfactory.metering.common.Constants.CLOSING_INVOICE_TIME_EXPRESSION_NAME;
+import static com.amazonaws.partners.saasfactory.metering.common.Constants.CLOSING_INVOICE_TIME_EXPRESSION_VALUE;
+import static com.amazonaws.partners.saasfactory.metering.common.Constants.CONFIG_SORT_KEY_VALUE;
 import static com.amazonaws.partners.saasfactory.metering.common.Constants.IDEMPOTENTCY_KEY_ATTRIBUTE_NAME;
 import static com.amazonaws.partners.saasfactory.metering.common.Constants.KEY_SUBMITTED_EXPRESSION_VALUE;
 import static com.amazonaws.partners.saasfactory.metering.common.Constants.PERIOD_START_ARRAY_LOCATION;
@@ -57,8 +61,11 @@ import static com.amazonaws.partners.saasfactory.metering.common.Constants.initi
 
 import com.stripe.Stripe;
 import com.stripe.exception.StripeException;
+import com.stripe.model.Invoice;
+import com.stripe.model.SubscriptionItem;
 import com.stripe.model.UsageRecord;
 import com.stripe.net.RequestOptions;
+import com.stripe.param.InvoiceUpcomingParams;
 import com.stripe.param.UsageRecordCreateOnSubscriptionItemParams;
 
 import java.io.InputStream;
@@ -244,6 +251,77 @@ public class StripeBillingPublish implements RequestStreamHandler {
                 );
     }
 
+    private String getSubscription(TenantConfiguration tenantConfiguration) {
+        SubscriptionItem subscriptionItem = null;
+        try {
+            subscriptionItem = SubscriptionItem.retrieve(tenantConfiguration.getExternalSubscriptionIdentifier());
+        } catch (StripeException e) {
+            this.logger.error("Error retrieving subscription for tenant {}", tenantConfiguration.getTenantID());
+            this.logger.error("Stripe exception:\n{}", e.getMessage());
+            return "";
+        }
+        return subscriptionItem.getSubscription();
+    }
+
+    private Instant getUpcomingInvoiceExpirationDate(TenantConfiguration tenantConfiguration) {
+        // Need to first retrieve the subscription ID with the subscription item ID
+        String subscription = getSubscription(tenantConfiguration);
+        if (subscription.isEmpty()) {
+            return null;
+        }
+        InvoiceUpcomingParams invoiceUpcomingParams = InvoiceUpcomingParams.builder()
+                .setSubscription(subscription)
+                .build();
+        Invoice upcomingInvoice = null;
+        try {
+            upcomingInvoice = Invoice.upcoming(invoiceUpcomingParams);
+        } catch (StripeException e) {
+            this.logger.error("Error retrieving upcoming invoice for tenant {}", tenantConfiguration.getTenantID());
+            this.logger.error("Stripe exception:\n{}", e.getMessage());
+            return null;
+        }
+        Instant invoiceExpiration = Instant.ofEpochSecond(upcomingInvoice.getPeriodEnd());
+        this.logger.info(
+                "Closing time for tenant {} is {}",
+                tenantConfiguration.getTenantID(),
+                invoiceExpiration);
+        return invoiceExpiration;
+    }
+
+    private void updateInvoiceExpirationTimeInTable(TenantConfiguration tenantConfiguration, Instant invoiceClosingTime) {
+        Map<String, AttributeValue> key = new HashMap<>();
+        AttributeValue primaryKeyValue = AttributeValue.builder()
+                .s(tenantConfiguration.getTenantID())
+                .build();
+        key.put(PRIMARY_KEY_NAME, primaryKeyValue);
+        AttributeValue sortKeyValue = AttributeValue.builder()
+                .s(CONFIG_SORT_KEY_VALUE)
+                .build();
+        key.put(SORT_KEY_NAME, sortKeyValue);
+
+        Map <String, String> expressionAttributeNames = new HashMap<>();
+        expressionAttributeNames.put(CLOSING_INVOICE_TIME_EXPRESSION_NAME, CLOSING_INVOICE_TIME_ATTRIBUTE_NAME);
+
+        Map<String, AttributeValue> expressionAttributeValues = new HashMap<>();
+        expressionAttributeValues.put(CLOSING_INVOICE_TIME_EXPRESSION_VALUE, AttributeValue.builder()
+                .s(invoiceClosingTime.toString())
+                .build());
+
+        String updateExpression = String.format(
+                "SET %s = %s",
+                CLOSING_INVOICE_TIME_EXPRESSION_NAME,
+                CLOSING_INVOICE_TIME_EXPRESSION_VALUE);
+
+        UpdateItemRequest updateItemRequest = UpdateItemRequest.builder()
+                .tableName(tableConfig.getTableName())
+                .key(key)
+                .expressionAttributeNames(expressionAttributeNames)
+                .expressionAttributeValues(expressionAttributeValues)
+                .updateExpression(updateExpression)
+                .build();
+        this.ddb.updateItem(updateItemRequest);
+    }
+
     @Override
     public void handleRequest(InputStream inputStream, OutputStream outputStream, Context context) {
         if (this.tableConfig.getTableName().isEmpty() || this.tableConfig.getIndexName().isEmpty()) {
@@ -263,6 +341,25 @@ public class StripeBillingPublish implements RequestStreamHandler {
         this.logger.info("Resolved tenant IDs in table {}", this.tableConfig.getTableName());
         for (TenantConfiguration tenant: tenantConfigurations) {
             List<AggregationEntry> aggregationEntries = getAggregationEntries(tenant.getTenantID());
+            // Check for the existence of the invoice expiration time or if it is expired
+            // If it doesn't exist or is expired, retrieve and store it
+            if (tenant.getInvoiceClosingTime() == null || tenant.isInvoiceClosed()) {
+                if (tenant.getInvoiceClosingTime() == null) {
+                    this.logger.info("No invoice closing time found for tenant {}", tenant.getTenantID());
+                } else {
+                    this.logger.info("Known invoice closed for tenant {}", tenant.getTenantID());
+                }
+                // retrieve the upcoming invoice end time
+                Instant invoiceExpiration = getUpcomingInvoiceExpirationDate(tenant);
+                // Couldn't retrieve the invoice expiration, continue to the next tenant
+                if (invoiceExpiration == null) {
+                    continue;
+                }
+                // update the configuration in DynamoDB
+                updateInvoiceExpirationTimeInTable(tenant, invoiceExpiration);
+            } else {
+                this.logger.info("Invoice for tenant {} is not yet closed", tenant.getTenantID());
+            }
             if (aggregationEntries.isEmpty()) {
                 this.logger.info("No unpublished aggregation entries found for tenant {}",
                                 tenant.getTenantID());

@@ -51,8 +51,7 @@ import com.amazonaws.partners.saasfactory.metering.common.TenantConfiguration;
 import com.amazonaws.partners.saasfactory.metering.common.TableConfiguration;
 
 import java.net.URI;
-import java.time.ZoneId;
-import java.time.ZonedDateTime;
+import java.time.Instant;
 import java.util.List;
 import java.util.HashMap;
 
@@ -136,7 +135,7 @@ class TenantConfigurationTest {
                     .s(external_subscription_identifier)
                     .build());
             item.put("closing_invoice_time", AttributeValue.builder()
-                    .s(ZonedDateTime.now(ZoneId.of("Etc/UTC")).toString())
+                    .s(Instant.now().toString())
                     .build());
             PutItemRequest request = PutItemRequest.builder()
                     .tableName(tableName)
@@ -146,7 +145,7 @@ class TenantConfigurationTest {
         }
     }
 
-    public void loadDeterministicTenant(String tenantID, ZonedDateTime time) {
+    public void loadDeterministicTenant(String tenantID, Instant time) {
         HashMap<String, AttributeValue> item = new HashMap<>();
         item.put("data_type", AttributeValue.builder()
                 .s(String.format("TENANT#%s", tenantID))
@@ -249,7 +248,7 @@ class TenantConfigurationTest {
     @Test
     void shouldReturnTenantConfiguration() {
         String tenantIdentifier = "Tenant0";
-        ZonedDateTime currentTime = ZonedDateTime.now(ZoneId.of("Etc/UTC"));
+        Instant currentTime = Instant.now();
         loadDeterministicTenant(tenantIdentifier, currentTime);
         TenantConfiguration tenant = TenantConfiguration.getTenantConfiguration(
                 tenantIdentifier,

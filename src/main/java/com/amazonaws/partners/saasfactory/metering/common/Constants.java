@@ -48,6 +48,8 @@ public final class Constants {
     public static final String AGGREGATION_EXPRESSION_VALUE = ":aggregate";
     public static final String ATTRIBUTE_DELIMITER = "#";
     public static final String CLOSING_INVOICE_TIME_ATTRIBUTE_NAME = "closing_invoice_time";
+    public static final String CLOSING_INVOICE_TIME_EXPRESSION_NAME = "#closing_invoice_time";
+    public static final String CLOSING_INVOICE_TIME_EXPRESSION_VALUE = ":closingInvoiceTime";
     public static final String CONFIG_EXPRESSION_NAME = "#configurationAttributeName";
     public static final String CONFIG_EXPRESSION_VALUE = ":config";
     public static final String CONFIG_INDEX_NAME_ENV_VARIABLE = "DYNAMODB_CONFIG_INDEX_NAME";

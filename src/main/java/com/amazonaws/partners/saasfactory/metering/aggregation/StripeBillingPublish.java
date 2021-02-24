@@ -322,6 +322,17 @@ public class StripeBillingPublish implements RequestStreamHandler {
         this.ddb.updateItem(updateItemRequest);
     }
 
+    private Instant updateInvoice(TenantConfiguration tenantConfiguration) {
+        Instant invoiceExpiration = getUpcomingInvoiceExpirationDate(tenantConfiguration);
+        // Couldn't retrieve the invoice expiration, return false
+        if (invoiceExpiration == null) {
+            return null;
+        }
+        // update the configuration in DynamoDB
+        updateInvoiceExpirationTimeInTable(tenantConfiguration, invoiceExpiration);
+        return invoiceExpiration;
+    }
+
     @Override
     public void handleRequest(InputStream inputStream, OutputStream outputStream, Context context) {
         if (this.tableConfig.getTableName().isEmpty() || this.tableConfig.getIndexName().isEmpty()) {
@@ -340,26 +351,25 @@ public class StripeBillingPublish implements RequestStreamHandler {
         }
         this.logger.info("Resolved tenant IDs in table {}", this.tableConfig.getTableName());
         for (TenantConfiguration tenant: tenantConfigurations) {
-            List<AggregationEntry> aggregationEntries = getAggregationEntries(tenant.getTenantID());
             // Check for the existence of the invoice expiration time or if it is expired
             // If it doesn't exist or is expired, retrieve and store it
-            if (tenant.getInvoiceClosingTime() == null || tenant.isInvoiceClosed()) {
-                if (tenant.getInvoiceClosingTime() == null) {
-                    this.logger.info("No invoice closing time found for tenant {}", tenant.getTenantID());
-                } else {
-                    this.logger.info("Known invoice closed for tenant {}", tenant.getTenantID());
-                }
-                // retrieve the upcoming invoice end time
-                Instant invoiceExpiration = getUpcomingInvoiceExpirationDate(tenant);
-                // Couldn't retrieve the invoice expiration, continue to the next tenant
-                if (invoiceExpiration == null) {
+            if (tenant.getInvoiceClosingTime() == null) {
+                this.logger.info("No invoice closing time found for tenant {}", tenant.getTenantID());
+                Instant invoiceClosingTime = updateInvoice(tenant);
+                if (invoiceClosingTime == null) {
+                    this.logger.info("Unable to update invoice closing time for tenant {}", tenant.getTenantID());
                     continue;
                 }
-                // update the configuration in DynamoDB
-                updateInvoiceExpirationTimeInTable(tenant, invoiceExpiration);
-            } else {
-                this.logger.info("Invoice for tenant {} is not yet closed", tenant.getTenantID());
+                tenant.setInvoiceClosingTime(invoiceClosingTime);
             }
+
+            if (!tenant.isInvoiceClosed()) {
+                this.logger.info("Invoice for tenant {} is still open", tenant.getTenantID());
+                continue;
+            }
+            this.logger.info("Invoice closed for tenant {}", tenant.getTenantID());
+
+            List<AggregationEntry> aggregationEntries = getAggregationEntries(tenant.getTenantID());
             if (aggregationEntries.isEmpty()) {
                 this.logger.info("No unpublished aggregation entries found for tenant {}",
                                 tenant.getTenantID());

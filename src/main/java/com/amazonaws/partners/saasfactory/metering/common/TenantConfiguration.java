@@ -46,7 +46,7 @@ public class TenantConfiguration {
 
     private final String tenantID;
     private final String externalSubscriptionIdentifier;
-    private final Instant invoiceClosingTime;
+    private Instant invoiceClosingTime;
 
     private TenantConfiguration(String tenantID,
                                 String externalSubscriptionIdentifier,
@@ -81,6 +81,10 @@ public class TenantConfiguration {
     public boolean isInvoiceClosed() {
         // Is the invoice time older than the current time?
         return this.invoiceClosingTime.compareTo(Instant.now()) < 0;
+    }
+
+    public void setInvoiceClosingTime(Instant newClosingTime) {
+        this.invoiceClosingTime = newClosingTime;
     }
 
     public static List<TenantConfiguration> getTenantConfigurations(TableConfiguration tableConfig, DynamoDbClient ddb, Logger logger) {

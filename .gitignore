@@ -2,3 +2,4 @@
 .aws-sam/
 .idea/
 target/
+.DS_Store

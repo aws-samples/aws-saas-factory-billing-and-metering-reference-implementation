@@ -20,6 +20,8 @@ import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -49,6 +51,7 @@ import com.amazonaws.partners.saasfactory.metering.common.TenantConfiguration;
 import com.amazonaws.partners.saasfactory.metering.common.TableConfiguration;
 
 import java.net.URI;
+import java.time.Instant;
 import java.util.List;
 import java.util.HashMap;
 
@@ -131,12 +134,75 @@ class TenantConfigurationTest {
             item.put("external_subscription_identifier", AttributeValue.builder()
                     .s(external_subscription_identifier)
                     .build());
+            item.put("closing_invoice_time", AttributeValue.builder()
+                    .s(Instant.now().toString())
+                    .build());
             PutItemRequest request = PutItemRequest.builder()
                     .tableName(tableName)
                     .item(item)
                     .build();
             PutItemResponse response = client.putItem(request);
         }
+    }
+
+    public void loadDeterministicTenant(String tenantID, Instant time) {
+        HashMap<String, AttributeValue> item = new HashMap<>();
+        item.put("data_type", AttributeValue.builder()
+                .s(String.format("TENANT#%s", tenantID))
+                .build());
+        item.put("sub_type", AttributeValue.builder()
+                .s("CONFIG")
+                .build());
+        item.put("external_subscription_identifier", AttributeValue.builder()
+                .s(external_subscription_identifier)
+                .build());
+        item.put("closing_invoice_time", AttributeValue.builder()
+                .s(time.toString())
+                .build());
+        PutItemRequest request = PutItemRequest.builder()
+                .tableName(tableName)
+                .item(item)
+                .build();
+        client.putItem(request);
+    }
+
+    public void loadDeterministicTenantWithoutClosingInvoiceTime(String tenantID) {
+        HashMap<String, AttributeValue> item = new HashMap<>();
+        item.put("data_type", AttributeValue.builder()
+                .s(String.format("TENANT#%s", tenantID))
+                .build());
+        item.put("sub_type", AttributeValue.builder()
+                .s("CONFIG")
+                .build());
+        item.put("external_subscription_identifier", AttributeValue.builder()
+                .s(external_subscription_identifier)
+                .build());
+        PutItemRequest request = PutItemRequest.builder()
+                .tableName(tableName)
+                .item(item)
+                .build();
+        client.putItem(request);
+    }
+
+    public void loadDeterministicTenantWithInvalidClosingInvoiceTime(String tenantID) {
+        HashMap<String, AttributeValue> item = new HashMap<>();
+        item.put("data_type", AttributeValue.builder()
+                .s(String.format("TENANT#%s", tenantID))
+                .build());
+        item.put("sub_type", AttributeValue.builder()
+                .s("CONFIG")
+                .build());
+        item.put("external_subscription_identifier", AttributeValue.builder()
+                .s(external_subscription_identifier)
+                .build());
+        item.put("closing_invoice_time", AttributeValue.builder()
+                .s("invalid_closing_date")
+                .build());
+        PutItemRequest request = PutItemRequest.builder()
+                .tableName(tableName)
+                .item(item)
+                .build();
+        client.putItem(request);
     }
 
     public void deleteTenants(int numberOfTenants) {
@@ -181,16 +247,43 @@ class TenantConfigurationTest {
 
     @Test
     void shouldReturnTenantConfiguration() {
-        int numberOfTenants = 1;
         String tenantIdentifier = "Tenant0";
-        loadRandomTenants(numberOfTenants);
+        Instant currentTime = Instant.now();
+        loadDeterministicTenant(tenantIdentifier, currentTime);
         TenantConfiguration tenant = TenantConfiguration.getTenantConfiguration(
                 tenantIdentifier,
                 new TableConfiguration(tableName, indexName),
                 client,
                 logger);
+        assertEquals(currentTime, tenant.getInvoiceClosingTime());
         assertEquals(external_subscription_identifier, tenant.getExternalSubscriptionIdentifier());
         assertEquals(tenantIdentifier, tenant.getTenantID());
+    }
+
+    @Test
+    void shouldReturnTenantConfigurationWithEmptyClosingInvoiceTime() {
+        String tenantIdentifier = "Tenant0";
+        loadDeterministicTenantWithoutClosingInvoiceTime(tenantIdentifier);
+        TenantConfiguration tenant = TenantConfiguration.getTenantConfiguration(
+                tenantIdentifier,
+                new TableConfiguration(tableName, indexName),
+                client,
+                logger);
+        assertNull(tenant.getInvoiceClosingTime());
+        assertEquals(external_subscription_identifier, tenant.getExternalSubscriptionIdentifier());
+        assertEquals(tenantIdentifier, tenant.getTenantID());
+    }
+
+    @Test
+    void shouldReturnEmptyTenantWithInvalidClosingInvoiceTime() {
+        String tenantIdentifier = "Tenant0";
+        loadDeterministicTenantWithInvalidClosingInvoiceTime(tenantIdentifier);
+        TenantConfiguration tenant = TenantConfiguration.getTenantConfiguration(
+                tenantIdentifier,
+                new TableConfiguration(tableName, indexName),
+                client,
+                logger);
+        assertTrue(tenant.isEmpty());
     }
 
     @AfterAll

@@ -26,6 +26,7 @@ import software.amazon.awssdk.services.dynamodb.model.QueryRequest;
 import software.amazon.awssdk.services.dynamodb.model.QueryResponse;
 import software.amazon.awssdk.services.dynamodb.model.ResourceNotFoundException;
 
+import static com.amazonaws.partners.saasfactory.metering.common.Constants.CLOSING_INVOICE_TIME_ATTRIBUTE_NAME;
 import static com.amazonaws.partners.saasfactory.metering.common.Constants.CONFIG_EXPRESSION_NAME;
 import static com.amazonaws.partners.saasfactory.metering.common.Constants.CONFIG_EXPRESSION_VALUE;
 import static com.amazonaws.partners.saasfactory.metering.common.Constants.CONFIG_SORT_KEY_VALUE;
@@ -34,6 +35,8 @@ import static com.amazonaws.partners.saasfactory.metering.common.Constants.PRIMA
 import static com.amazonaws.partners.saasfactory.metering.common.Constants.SORT_KEY_NAME;
 import static com.amazonaws.partners.saasfactory.metering.common.Constants.formatTenantEntry;
 
+import java.time.Instant;
+import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -43,26 +46,54 @@ public class TenantConfiguration {
 
     private final String tenantID;
     private final String externalSubscriptionIdentifier;
+    private Instant invoiceClosingTime;
 
-    private TenantConfiguration(String tenantID, String externalSubscriptionIdentifier) {
+    private TenantConfiguration(String tenantID,
+                                String externalSubscriptionIdentifier,
+                                String invoiceClosingTime) {
        this.tenantID = tenantID;
        this.externalSubscriptionIdentifier = externalSubscriptionIdentifier;
+       if (invoiceClosingTime == null) {
+           this.invoiceClosingTime = null;
+       } else {
+           this.invoiceClosingTime = Instant.parse(invoiceClosingTime);
+       }
     }
 
     private TenantConfiguration() {
         this.tenantID = "";
         this.externalSubscriptionIdentifier = "";
+        this.invoiceClosingTime = null;
     }
 
     public String getTenantID() { return tenantID; }
 
     public String getExternalSubscriptionIdentifier() { return externalSubscriptionIdentifier; }
 
+    public Instant getInvoiceClosingTime() { return this.invoiceClosingTime; }
+
     public boolean isEmpty() {
-        return this.tenantID.isEmpty() || this.externalSubscriptionIdentifier.isEmpty();
+        return this.tenantID.isEmpty() &&
+               this.externalSubscriptionIdentifier.isEmpty() &&
+               this.invoiceClosingTime == null;
+    }
+
+    public boolean isInvoiceClosed() {
+        // Is the invoice time older than the current time?
+        return this.invoiceClosingTime.compareTo(Instant.now()) < 0;
+    }
+
+    public void setInvoiceClosingTime(Instant newClosingTime) {
+        this.invoiceClosingTime = newClosingTime;
     }
 
     public static List<TenantConfiguration> getTenantConfigurations(TableConfiguration tableConfig, DynamoDbClient ddb, Logger logger) {
+        // Add support for the invoice end field here
+        // https://stripe.com/docs/api/invoices/upcoming
+        // When the application retrieves the tenant configuration, check for this attribute.
+        // if it exists, move on. If it doesn't, retrieve it from Stripe, add it to the returned
+        // tenant configuration and put it back into DDB. The retrieval part should be part of
+        // the Lambda function that integrates Stripe
         List<TenantConfiguration> tenantIDs = new ArrayList<>();
 
         HashMap<String,String> expressionNames = new HashMap<>();
@@ -99,7 +130,22 @@ public class TenantConfiguration {
             for (Map<String, AttributeValue> item : result.items()) {
                 String tenantID = item.get(PRIMARY_KEY_NAME).s();
                 String externalProductCode = item.get(EXTERNAL_SUBSCRIPTION_IDENTIFIER_ATTRIBUTE_NAME).s();
-                TenantConfiguration tenant = new TenantConfiguration(tenantID, externalProductCode);
+                String invoiceClosingTime = item.getOrDefault(
+                        CLOSING_INVOICE_TIME_ATTRIBUTE_NAME,
+                        AttributeValue.builder()
+                                .nul(true)
+                                .build())
+                        .s();
+                TenantConfiguration tenant;
+                try {
+                    tenant = new TenantConfiguration(
+                            tenantID,
+                            externalProductCode,
+                            invoiceClosingTime);
+                } catch (DateTimeParseException e) {
+                    logger.error("Could not parse the invoice closing date for tenant {}", tenantID);
+                    continue;
+                }
                 logger.info("Found tenant ID {}", tenantID);
                 tenantIDs.add(tenant);
             }
@@ -138,7 +184,21 @@ public class TenantConfiguration {
         TenantConfiguration tenant;
         if (!item.isEmpty()) {
             String externalSubscriptionIdentifier = item.get(EXTERNAL_SUBSCRIPTION_IDENTIFIER_ATTRIBUTE_NAME).s();
-            tenant = new TenantConfiguration(tenantID, externalSubscriptionIdentifier);
+            String invoiceClosingTime = item.getOrDefault(
+                    CLOSING_INVOICE_TIME_ATTRIBUTE_NAME,
+                    AttributeValue.builder()
+                            .nul(true)
+                            .build())
+                    .s();
+            try {
+                tenant = new TenantConfiguration(
+                        tenantID,
+                        externalSubscriptionIdentifier,
+                        invoiceClosingTime);
+            } catch (DateTimeParseException e) {
+                logger.error("Could not parse the invoice closing date for tenant {}", tenantID);
+                return new TenantConfiguration();
+            }
         } else {
             return new TenantConfiguration();
         }

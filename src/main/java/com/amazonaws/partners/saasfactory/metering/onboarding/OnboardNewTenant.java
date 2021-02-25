@@ -16,6 +16,7 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 */
 package com.amazonaws.partners.saasfactory.metering.onboarding;
 
+import com.amazonaws.partners.saasfactory.metering.common.TenantOnboardingException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -142,9 +143,11 @@ public class OnboardNewTenant implements RequestStreamHandler {
         if (onboardingEvent == null) {
             if (event.getDetail().getTenantID() == null) {
                 this.logger.error("Failed to create a new tenant because tenant ID unspecified");
+                throw new TenantOnboardingException("Failed to create a new tenant because tenant ID unspecified");
             }
             if (event.getDetail().getExternalSubscriptionIdentifier() == null) {
                 this.logger.error("Failed to create a new tenant because external subscription identifier unspecified");
+                throw new TenantOnboardingException("Failed to create a new tenant because external subscription identifier unspecified");
             }
             return;
         }

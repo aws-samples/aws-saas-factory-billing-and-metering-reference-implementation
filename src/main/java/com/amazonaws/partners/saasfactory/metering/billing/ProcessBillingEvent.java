@@ -16,6 +16,8 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 */
 package com.amazonaws.partners.saasfactory.metering.billing;
 
+import com.amazonaws.partners.saasfactory.metering.common.TenantNotFoundException;
+import com.google.gson.JsonSyntaxException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -33,9 +35,12 @@ import com.amazonaws.partners.saasfactory.metering.common.EventBridgeBillingEven
 import com.amazonaws.partners.saasfactory.metering.common.ProcessBillingEventException;
 import com.amazonaws.partners.saasfactory.metering.common.TableConfiguration;
 import com.amazonaws.partners.saasfactory.metering.common.TenantConfiguration;
+
+import static com.amazonaws.partners.saasfactory.metering.common.Constants.CONFIG_INDEX_NAME_ENV_VARIABLE;
 import static com.amazonaws.partners.saasfactory.metering.common.Constants.PRIMARY_KEY_NAME;
 import static com.amazonaws.partners.saasfactory.metering.common.Constants.QUANTITY_ATTRIBUTE_NAME;
 import static com.amazonaws.partners.saasfactory.metering.common.Constants.SORT_KEY_NAME;
+import static com.amazonaws.partners.saasfactory.metering.common.Constants.TABLE_ENV_VARIABLE;
 import static com.amazonaws.partners.saasfactory.metering.common.Constants.formatEventEntry;
 import static com.amazonaws.partners.saasfactory.metering.common.Constants.formatTenantEntry;
 import static com.amazonaws.partners.saasfactory.metering.common.Constants.initializeDynamoDBClient;
@@ -109,14 +114,36 @@ public class ProcessBillingEvent implements RequestStreamHandler {
         return true;
     }
 
+    private boolean validateEventFields(EventBridgeBillingEvent event) {
+        if (event.getDetail().getTenantID() == null) {
+            return false;
+        }
+        if (event.getDetail().getQuantity() == null) {
+            return false;
+        }
+        return true;
+    }
+
     @Override
     public void handleRequest(InputStream inputStream, OutputStream outputStream, Context context) {
         if (this.tableConfig.getTableName().isEmpty() || this.tableConfig.getIndexName().isEmpty()) {
+            this.logger.error("{} or {} environment variable not set", TABLE_ENV_VARIABLE,CONFIG_INDEX_NAME_ENV_VARIABLE);
             return;
         }
 
         BufferedReader reader = new BufferedReader(new InputStreamReader(inputStream, StandardCharsets.UTF_8));
-        EventBridgeBillingEvent event = gson.fromJson(reader, EventBridgeBillingEvent.class);
+        EventBridgeBillingEvent event = null;
+        try {
+            event = gson.fromJson(reader, EventBridgeBillingEvent.class);
+        } catch (JsonSyntaxException e) {
+            this.logger.error("Unable to parse JSON input");
+            throw e;
+        }
+
+        if (!validateEventFields(event)) {
+            this.logger.error("The fields associated with the billing event are not valid");
+            throw new ProcessBillingEventException("TenantID or Quantity key not found in event");
+        }
 
         // Verify the existence of the tenant ID
         TenantConfiguration tenant = TenantConfiguration.getTenantConfiguration(
@@ -126,8 +153,9 @@ public class ProcessBillingEvent implements RequestStreamHandler {
                 this.logger);
 
         if (tenant.isEmpty()) {
-            this.logger.error("Tenant with ID {} not found", event.getDetail().getTenantID());
-            return;
+            throw new TenantNotFoundException(String.format(
+                    "Tenant with ID %s not found",
+                    event.getDetail().getTenantID()));
         }
 
         this.logger.info("Found tenant ID {}", event.getDetail().getTenantID());

@@ -16,10 +16,13 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 */
 package onboarding;
 
+import com.amazonaws.partners.saasfactory.metering.common.TenantOnboardingException;
+import com.google.gson.JsonSyntaxException;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -158,6 +161,51 @@ class OnboardNewTenantTest {
         assertEquals(data_type, response.item().get("data_type").s());
         assertEquals(sub_type, response.item().get("sub_type").s());
         assertEquals(external_subscription_identifier, response.item().get("external_subscription_identifier").s());
+    }
+
+    @Test
+    void shouldThrowOnboardingExceptionOnBadTenantIDKey() {
+        String onboardingJSON = String.format(
+                "{ \"detail\": { \"invalid_key\": \"%s\", \"ExternalSubscriptionIdentifier\": \"%s\" }}",
+                tenantID,
+                external_subscription_identifier);
+        InputStream inputStream = new ByteArrayInputStream(onboardingJSON.getBytes(StandardCharsets.UTF_8));
+        OutputStream outputStream = new ByteArrayOutputStream();
+        TableConfiguration tableConfig = new TableConfiguration(tableName, indexName);
+        OnboardNewTenant onboardNewTenant = new OnboardNewTenant(client, tableConfig);
+        Context context = null;
+        assertThrows(TenantOnboardingException.class, () -> {
+            onboardNewTenant.handleRequest(inputStream, outputStream, context);
+        });
+    }
+
+    @Test
+    void shouldThrowOnboardingExceptionOnBadExternalIdentifierKey() {
+        String onboardingJSON = String.format(
+                "{ \"detail\": { \"TenantID\": \"%s\", \"invalid_key\": \"%s\" }}",
+                tenantID,
+                external_subscription_identifier);
+        InputStream inputStream = new ByteArrayInputStream(onboardingJSON.getBytes(StandardCharsets.UTF_8));
+        OutputStream outputStream = new ByteArrayOutputStream();
+        TableConfiguration tableConfig = new TableConfiguration(tableName, indexName);
+        OnboardNewTenant onboardNewTenant = new OnboardNewTenant(client, tableConfig);
+        Context context = null;
+        assertThrows(TenantOnboardingException.class, () -> {
+            onboardNewTenant.handleRequest(inputStream, outputStream, context);
+        });
+    }
+
+    @Test
+    void shouldJsonSyntaxExceptionOnInvalidJson() {
+        String onboardingJSON = "invalid_json";
+        InputStream inputStream = new ByteArrayInputStream(onboardingJSON.getBytes(StandardCharsets.UTF_8));
+        OutputStream outputStream = new ByteArrayOutputStream();
+        TableConfiguration tableConfig = new TableConfiguration(tableName, indexName);
+        OnboardNewTenant onboardNewTenant = new OnboardNewTenant(client, tableConfig);
+        Context context = null;
+        assertThrows(JsonSyntaxException.class, () -> {
+            onboardNewTenant.handleRequest(inputStream, outputStream, context);
+        });
     }
 
     @AfterAll

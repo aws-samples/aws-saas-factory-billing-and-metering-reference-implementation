@@ -51,7 +51,7 @@ public class BillingEvent implements Comparable<BillingEvent> {
 
     public static BillingEvent createBillingEvent(EventBridgeBillingEvent event) {
         String tenantID = event.getDetail().getTenantID();
-        if (tenantID.isEmpty()) {
+        if (tenantID == null || tenantID.isEmpty()) {
             return null;
         }
         Long quantity = event.getDetail().getQuantity();

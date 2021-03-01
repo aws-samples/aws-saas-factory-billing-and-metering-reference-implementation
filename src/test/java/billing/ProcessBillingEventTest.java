@@ -16,10 +16,13 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 */
 package billing;
 
+import com.amazonaws.partners.saasfactory.metering.common.ProcessBillingEventException;
+import com.google.gson.JsonSyntaxException;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -217,6 +220,58 @@ class ProcessBillingEventTest {
         assertEquals(entryMatch.find(), true);
 
         assertEquals(response.items().get(0).get("quantity").n(), "5");
+    }
+
+    @Test
+    void shouldThrowProcessBillingEventExceptionOnBadQuantityKey() {
+        String onboardingJSON = "{ \"detail\": { \"TenantID\": \"Tenant0\", \"invalid_key\": 5 }}";
+        InputStream inputStream = new ByteArrayInputStream(onboardingJSON.getBytes(StandardCharsets.UTF_8));
+        OutputStream outputStream = new ByteArrayOutputStream();
+        TableConfiguration tableConfig = new TableConfiguration(tableName, indexName);
+        ProcessBillingEvent processBillingEvent = new ProcessBillingEvent(client, tableConfig);
+        Context context = null;
+        assertThrows(ProcessBillingEventException.class, () -> {
+            processBillingEvent.handleRequest(inputStream, outputStream, context);
+        });
+    }
+
+    @Test
+    void shouldThrowProcessBillingEventExceptionOnBadTenantIDKey() {
+        String onboardingJSON = "{ \"detail\": { \"invalid_key\": \"Tenant0\", \"Quantity\": 5 }}";
+        InputStream inputStream = new ByteArrayInputStream(onboardingJSON.getBytes(StandardCharsets.UTF_8));
+        OutputStream outputStream = new ByteArrayOutputStream();
+        TableConfiguration tableConfig = new TableConfiguration(tableName, indexName);
+        ProcessBillingEvent processBillingEvent = new ProcessBillingEvent(client, tableConfig);
+        Context context = null;
+        assertThrows(ProcessBillingEventException.class, () -> {
+            processBillingEvent.handleRequest(inputStream, outputStream, context);
+        });
+    }
+
+    @Test
+    void shouldThrowJsonSyntaxExceptionExceptionOnBadQuantityValue() {
+        String onboardingJSON = "{ \"detail\": { \"TenantID\": \"Tenant0\", \"Quantity\": \"Five\" }}";
+        InputStream inputStream = new ByteArrayInputStream(onboardingJSON.getBytes(StandardCharsets.UTF_8));
+        OutputStream outputStream = new ByteArrayOutputStream();
+        TableConfiguration tableConfig = new TableConfiguration(tableName, indexName);
+        ProcessBillingEvent processBillingEvent = new ProcessBillingEvent(client, tableConfig);
+        Context context = null;
+        assertThrows(JsonSyntaxException.class, () -> {
+            processBillingEvent.handleRequest(inputStream, outputStream, context);
+        });
+    }
+
+    @Test
+    void shouldThrowJsonSyntaxExceptionOnInvalidJson() {
+        String onboardingJSON = "invalid_json";
+        InputStream inputStream = new ByteArrayInputStream(onboardingJSON.getBytes(StandardCharsets.UTF_8));
+        OutputStream outputStream = new ByteArrayOutputStream();
+        TableConfiguration tableConfig = new TableConfiguration(tableName, indexName);
+        ProcessBillingEvent processBillingEvent = new ProcessBillingEvent(client, tableConfig);
+        Context context = null;
+        assertThrows(JsonSyntaxException.class, () -> {
+            processBillingEvent.handleRequest(inputStream, outputStream, context);
+        });
     }
 
     @AfterAll

@@ -73,10 +73,21 @@ through an event on the associated EventBridge. See the "Usage and Function" sec
 
 ### Stripe API Key
 
+**Do not use a production API key.**
+
 The Stripe API key is stored within Secrets Manager. The Cloudformation stack creates an empty secret.
-Access the secret through the Secrets Manager console and paste in a **test Stripe API key** only. Do not
-paste it in JSON format; the application expects to find a single string with the API key. **Do not use a production
-API key.**
+Access the secret through the Secrets Manager console and paste in a **restricted testing API key** with
+the following permissions:
+
+* Invoices - Read
+* Subscriptions - Read
+* Usage Records - Write
+
+More information about how to create a restricted key can be found [here](https://stripe.com/docs/keys#limit-access).
+
+Do not paste it in JSON format; the application expects to find a single string with the API key.
+
+**Do not use a production API key.**
 
 ## Usage and Function
 
